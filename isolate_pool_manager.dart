@@ -10,10 +10,152 @@ import 'package:assited_agent_v2/bloc/chat/config/isolate_pool/models/isolate_ta
 import 'package:assited_agent_v2/common/logger.dart';
 import 'package:assited_agent_v2/repository/api_provider.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:image/image.dart' as img;
+
+sealed class WorkerCommand {}
+
+class ExecuteTask extends WorkerCommand {
+  final IsolateTask task;
+  ExecuteTask(this.task);
+}
+
+class CancelTask extends WorkerCommand {
+  final String taskId;
+  CancelTask(this.taskId);
+}
+
+class Shutdown extends WorkerCommand {}
+
+
+
+abstract class IsolatePayload {}
+
+class IsolateTask {
+  final String taskId;
+  final IsolatePayload payload;
+  IsolateTask({required this.taskId, required this.payload});
+}
+
+class NetworkPayload extends IsolatePayload {
+  final String url;
+  final String method;
+  final Object? data;
+  final Map<String, dynamic>? queryParameters;
+  final bool withProgress;
+
+  NetworkPayload({
+    required this.url,
+    required this.method,
+    this.data,
+    this.queryParameters,
+    this.withProgress = false,
+  });
+
+  NetworkRequest get toNetworkRequest {
+    return NetworkRequest(url, method, data, queryParameters);
+  }
+}
+
+class DownloadPayload extends IsolatePayload {
+  final String token;
+  final List<DownloadMedia> url;
+  final String storagePath;
+  DownloadPayload({
+    required this.token,
+    required this.url,
+    required this.storagePath,
+  });
+}
+
+class DownloadMedia {
+  final String url;
+  final String extention;
+  final String id;
+  DownloadMedia(this.url, this.extention, this.id);
+}
+
+class UploadPayload extends IsolatePayload {
+  final String url;
+  final String token;
+  final String storagePath;
+  final List<UploadMedia> medias;
+
+  UploadPayload({
+    required this.token,
+    required this.medias,
+    required this.url,
+    required this.storagePath,
+  });
+}
+
+class UploadMedia {
+  final String filePath;
+  final String tempId;
+  final String parentId;
+  UploadMedia(this.filePath, this.tempId, this.parentId);
+}
+
+
+abstract class IsolateResult {
+  String get taskId;
+  dynamic get data;
+  String? get error;
+  Enum? get event;
+  bool get isSuccess;
+}
+
+class IsolateResultWithoutProgress implements IsolateResult {
+  IsolateResultWithoutProgress({
+    this.data,
+    this.error,
+    required this.taskId,
+    this.event,
+  });
+  @override
+  final dynamic data;
+
+  @override
+  final String? error;
+  @override
+  final String taskId;
+
+  @override
+  final Enum? event;
+
+  @override
+  bool get isSuccess => error == null;
+}
+
+class IsolateResultWithProgress implements IsolateResult {
+  IsolateResultWithProgress({
+    this.data,
+    this.error,
+    required this.taskId,
+    this.progress,
+    this.completed = false,
+    this.event,
+  });
+  @override
+  final dynamic data;
+  @override
+  final String? error;
+  @override
+  final String taskId;
+
+  @override
+  bool get isSuccess => error == null;
+
+  final bool completed;
+  @override
+  final Enum? event;
+
+  double? progress;
+}
+
 
 enum DownloadEvent { completed }
 
@@ -782,7 +924,11 @@ class RunUploadTaskWithProgress implements IsolateTaskExecuter<UploadPayload> {
           receiveTimeout: Duration.zero,
           headers: {"token": token},
         ),
-      )..interceptors.add(LogInterceptor());
+      );
+
+      if (kDebugMode) {
+        dio.interceptors.add(PrettyDioLogger(requestBody: true));
+      }
       // debugPrint("Status Code: $url ");
       final data = await _toParams(uploadMedia, token);
 
@@ -862,7 +1008,9 @@ abstract class ApiNetworkCall {
 class GetApiCall implements ApiNetworkCall {
   final Dio dio;
   GetApiCall(this.dio) {
-    dio.interceptors.add(PrettyDioLogger(requestBody: true));
+    if (kDebugMode) {
+      dio.interceptors.add(PrettyDioLogger(requestBody: true));
+    }
   }
 
   @override
@@ -888,7 +1036,9 @@ class GetApiCall implements ApiNetworkCall {
 class PostApiCall implements ApiNetworkCall {
   final Dio dio;
   PostApiCall(this.dio) {
-    dio.interceptors.add(PrettyDioLogger(requestBody: true));
+    if (kDebugMode) {
+      dio.interceptors.add(PrettyDioLogger(requestBody: true));
+    }
   }
 
   @override
